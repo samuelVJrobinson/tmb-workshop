@@ -1,0 +1,4 @@
+Things to ask Chris:
+- What is the function of sdreport()? Could we not just extract SD from Obj using -> as.list( Opt$SD, "Std. Error" )
+- How does TMB know what length to set PARAMETER_VECTOR? (e.g. line 27 of state_space_exponential.cpp) Does it just use whatever starting values we give it?
+- Why does Obj$report() not include mu_lambda? (line 71)

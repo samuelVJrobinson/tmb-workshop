@@ -1,3 +1,5 @@
+library(tidyverse)
+
 require(TMB)
 require(TMBhelper)
 nt = 100
@@ -20,19 +22,21 @@ for( t in 1:nt ){
   y_t[t] = x_t[t] + rnorm( 1, mean=0, sd=sigmaO )
 }
 
-plot(y_t ~ I(1:nt)) #observations = y_t
-lines(x_t ~ I(1:nt), col="blue", lty=3) #truth = x_t
+plot(y_t ~ I(1:nt),pch=19) #observations = y_t
+lines(x_t ~ I(1:nt), col="red",) #truth = x_t
+legend('topleft',c('obs','truth'),fill=c('black','red'))
 
-setwd( "C:/Users/Chris Cahill/Documents/GitHub/tmb-workshop/week 4" )
+setwd("~/Documents/tmb-workshop/week 4")
 Version = "kalman"
+precompile()
 compile( paste0(Version,".cpp") )
 
 # Build inputs
-Data = list( "nt"=nt, "y_t"=y_t )
-Parameters = list( "x0"=0, "log_sigmaP"=1, "log_sigmaO"=1, "alpha"=1, "x_t"=rep(0,nt) )
-Random = c("x_t")
+Data = list( "nt"=nt, "y_t"=y_t ) #Data to go into the model
+Parameters = list( "x0"=0, "log_sigmaP"=1, "log_sigmaO"=1, "alpha"=1, "x_t"=rep(0,nt) ) #Starting parameters
+Random = c("x_t") #Stuff that we want marginalized out
 
-Use_REML = TRUE
+Use_REML = FALSE
 if( Use_REML==TRUE ) Random = union( Random, c("x0","alpha") )
 
 # Build object
@@ -43,7 +47,12 @@ Obj = MakeADFun(data=Data, parameters=Parameters, random=Random)
 Obj$fn( Obj$par )
 Obj$gr( Obj$par )
 
-Opt = fit_tmb( obj=Obj, newtonsteps=1 )
+Opt = fit_tmb( obj=Obj, newtonsteps=1 ) #Fit model
 Opt
 
 SD = sdreport( Obj )
+SD
+
+#Things to ask Chris:
+# - How would I get SE estimates for the 
+

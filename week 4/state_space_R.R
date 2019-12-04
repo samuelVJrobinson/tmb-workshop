@@ -4,9 +4,9 @@ rm(list=ls(all=TRUE))
 #Simulate some fake data, analyze it, make lots of plots
 require(TMB)
 require(tidyverse)
+theme_set(theme_classic())
 require(TMBhelper)
 require(mgcv)
-
 Nyears = 50 #number of years of data
 B_init = 20 #initial population size
 mu_lambda = 1.05 #Mean annual population growth rate
@@ -37,19 +37,19 @@ ypred_t = predict(Gam, se=TRUE)
 gam.check(Gam)
 
 # Compile model
-setwd( "C:/Users/Chris Cahill/Documents/GitHub/tmb-workshop/week 4" )
+setwd( "~/Documents/tmb-workshop/week 4" )
 Version = "state_space_exponential"
 compile( paste0(Version,".cpp") )
 
 # Build inputs
-Data = list( "Nyears"=Nyears, "Y_obs_t"=y_obs )
-Parameters = list( "logB0"=0, "log_sigmaP"=1, "log_sigmaO"=1, "mu_lambda"=1, "lambda_t"=rep(0,Nyears-1) )
-Random = c("lambda_t")
+Data = list( "Nyears"=Nyears, "Y_obs_t"=y_obs ) #Years 
+Parameters = list( "logB0"=0, "log_sigmaP"=1, "log_sigmaO"=1, "mu_lambda"=1, "lambda_t"=rep(0,Nyears-1) ) #Parameter starting values
+Random = c("lambda_t") #Random effect: actual population growth rate
 
-Use_REML = TRUE
+Use_REML = TRUE #If REML, marginalize across lambda_t as well as logB0, mu_lambda
 if( Use_REML==TRUE ) Random = union( Random, c("logB0","mu_lambda") )
 
-# Build object
+# Build function
 dyn.load( dynlib("state_space_exponential") )
 Obj = MakeADFun(data=Data, parameters=Parameters, random=Random)  
 
@@ -57,10 +57,11 @@ Obj = MakeADFun(data=Data, parameters=Parameters, random=Random)
 Obj$fn( Obj$par )
 Obj$gr( Obj$par )
 
+#Run function through optimizer
 Opt = fit_tmb( obj=Obj, newtonsteps=1 )
 Opt
 
-SD = sdreport( Obj )
+SD = sdreport( Obj ) #Get standard errors 
 #SEHat  = as.list( Opt$SD, "Std. Error" )
 
 #Did it converge
@@ -68,9 +69,9 @@ final_gradient = Obj$gr( Opt$par )
 if( any(abs(final_gradient)>0.0001) | SD$pdHess==FALSE ) stop("Not converged")
 
 # Get reporting and SEs
-Report = Obj$report()
-ParHat = as.list( Opt$SD, "Estimate" )
-ParHat[["biomass_t"]] = SD$value[names(SD$value)=="biomass_t"]
+Report = Obj$report() # Estimates of parameters (not mu_lambda?   I think this is where REPORT or ADREPORT are returning values inside .cpp function)
+ParHat = as.list( Opt$SD, "Estimate" ) #Get ML estimates from Opt - I think this is getting the working parameter estimates (e.g. log_sigma0) rather than derived parameters like sigma0 (as above) 
+ParHat[["biomass_t"]] = unname(SD$value[names(SD$value)=="biomass_t"]) #Extract biomass from SD$value
 
 ParHat
 
@@ -109,6 +110,7 @@ dev.off()
 
 #Plot stuff
 plot.data = data.frame(true_lambda=lambda_t,
+                       #Get lambda_t from ParHat, SD for lambda_t from SD object 
                        tmb_lambda_lower = ParHat$lambda_t - SD$sd[names(SD$value)=="lambda_t"]*1.96, 
                        tmb_lambda_mu = ParHat$lambda_t, 
                        tmb_lambda_upper = ParHat$lambda_t + SD$sd[names(SD$value)=="lambda_t"]*1.96
@@ -126,6 +128,11 @@ polygon(x = c(1:nrow(plot.data), (nrow(plot.data):1)),
 lines(ParHat$lambda_t)
 lines(plot.data$true_lambda, pch=16, type="b", col="darkorange")
 abline(h=1.0, col="blue", lty=2)
+legend('bottomright', 
+       legend = c(expression(paste('True ',lambda)), expression(paste('Estimated ',lambda))),
+       lty = c(1, 1, 1), lwd = c(2, 2, 2), col = c("darkorange","black"),
+       bty = "n", cex = 1)
+
 dev.off()
 
 #---------------------------------------------------------
@@ -195,4 +202,46 @@ dev.off()
 #SigP = SigO = 1; B0 = 20;
 #for a 'fun' learning experience
 #i.e., see Auger-methe et al. 2016
-#---------------------------------------------------------
+
+# Same thing, but in Stan---------------------------------------------------------
+library(rstan)
+options(mc.cores = parallel::detectCores())
+rstan_options(auto_write = TRUE)
+
+#Set up data and initial values in chain
+dat <- list(N=Nyears,y_obs=y_obs)
+startVals <- function() {
+  list(logB0 = 3, sigmaProc = 0.15, sigmaObs = 7, mu_lambda = 1, 
+       lambda_t = rep(1,dat$N-1))
+}
+
+#true values: logB0 = exp(20) = 2.99, mu_lambda = 1.05, sigmaProc = 0.15, sigmaObs = 7
+
+stanMod1 <- stan(file='state_space_exponential.stan',data=dat,chains=4,init=startVals,
+                 iter=5000)
+
+#Parameters
+p <- c('logB0','sigmaProc','sigmaObs','mu_lambda')
+
+stan_trace(stanMod1,pars=p) #Looks OK, but lower than estimate
+
+mod1Res <- extract(stanMod1)
+
+#Doing a bad job at estimating sigmaObs/sigmaProc. Bad priors?
+
+data.frame(draw=unlist(mod1Res))
+
+as.data.frame(t(sapply(mod1Res[1:4],function(x) quantile(x,c(0.5,0.025,0.975))))) %>% 
+  rownames_to_column(var='var') %>% 
+  mutate(actual=c(log(B_init),SigP,SigO,mu_lambda)) %>% 
+  rename(med=2,lwr=3,upr=4) %>% 
+  ggplot(aes(x=1))+facet_wrap(~var,scales='free_y')+
+  geom_pointrange(aes(y=med,ymax=upr,ymin=lwr),col='red')+
+  geom_point(aes(y=actual))
+  
+
+
+
+
+
+

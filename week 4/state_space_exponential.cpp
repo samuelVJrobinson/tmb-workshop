@@ -20,21 +20,22 @@ Type objective_function<Type>::operator() ()
   DATA_VECTOR( Y_obs_t );   //observed data
   
   // Parameters
-  PARAMETER( logB0 );          //initial biomass measurement
-  PARAMETER( log_sigmaP );     //process sd
-  PARAMETER( log_sigmaO );     //measurement sd 
-  PARAMETER( mu_lambda); 
-  PARAMETER_VECTOR( lambda_t ); //population growth rate 
+  PARAMETER( logB0 );           //initial biomass measurement
+  PARAMETER( log_sigmaP );      //process sd
+  PARAMETER( log_sigmaO );      //measurement sd 
+  PARAMETER( mu_lambda);        //generating parameter for population growth rate
+  PARAMETER_VECTOR( lambda_t ); //actual population growth rate at time t
 
   // Objective function
   Type jnll = 0;
 
   vector<Type> biomass_t(Nyears); //create a vector to store biomass values
-  biomass_t(0) = exp(logB0); //condition on B0
+  biomass_t(0) = exp(logB0); //biomass at t_0 = exp(initial biomass)
+  
   // Probability of random coefficients--lambda_t --> vector of latent states
   //sweep downstream through time-series | B0, mu_lambda  
   for( int t=0; t<(Nyears-1); t++ ){
-    jnll -= dnorm( lambda_t(t), mu_lambda, exp(log_sigmaP), true );
+    jnll -= dnorm(   lambda_t(t), mu_lambda, exp(log_sigmaP), true );
     biomass_t(t+1) = lambda_t(t)*biomass_t(t); 
   }
   

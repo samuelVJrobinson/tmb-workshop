@@ -3,8 +3,6 @@
 rm(list=ls(all=TRUE))
 #Simulate some fake data, analyze it, make lots of plots
 require(TMB)
-require(tidyverse)
-theme_set(theme_classic())
 require(TMBhelper)
 require(mgcv)
 Nyears = 50 #number of years of data
@@ -86,7 +84,7 @@ plot.data = data.frame(true_biomass=B, true_lambda=c(lambda_t, NA),
                        tmb_lambda_upper = c(ParHat$lambda_t + SD$sd[names(SD$value)=="lambda_t"]*1.96, NA)
                        )
 plot.data
-png( file="results.png", width=8, height=5, res=800, units="in" )
+# png( file="results.png", width=8, height=5, res=800, units="in" )
 par( mar=c(3,3,1,1), mgp=c(2,0.5,0), tck=-0.02 )
 
 plot(0, 0, ylim = c(min(plot.data$tmb_lower), max(plot.data$tmb_upper)), 
@@ -104,7 +102,7 @@ legend(x = 30, y = 45, legend = c("True", "Observed", "Estimated (TMB)",
                                                        "Estimated (Gam)"),
        lty = c(1, 1, 1), lwd = c(2, 2, 2), col = c("darkorange","black", "blue", "red"),
        bty = "n", cex = 1)
-dev.off()
+# dev.off()
 
 #Here's a thing gam cannot give you (to my knowledge):
 
@@ -116,7 +114,7 @@ plot.data = data.frame(true_lambda=lambda_t,
                        tmb_lambda_upper = ParHat$lambda_t + SD$sd[names(SD$value)=="lambda_t"]*1.96
 )
 
-png( file="lambda.png", width=8, height=5, res=800, units="in" )
+# png( file="lambda.png", width=8, height=5, res=800, units="in" )
 par( mar=c(3,3,1,1), mgp=c(2,0.5,0), tck=-0.02 )
 
 plot(0, 0, ylim = c(0.5, 1.5), 
@@ -133,10 +131,9 @@ legend('bottomright',
        lty = c(1, 1, 1), lwd = c(2, 2, 2), col = c("darkorange","black"),
        bty = "n", cex = 1)
 
-dev.off()
+# dev.off()
 
-#---------------------------------------------------------
-#Do it again but predict left out years this time
+#Do it again but predict left out years this time --------------
 dyn.unload( dynlib("state_space_exponential") )
 
 Data = list( "Nyears"=Nyears, "Y_obs_t"=y_obs )
@@ -178,7 +175,7 @@ plot.data = data.frame(true_biomass=B, true_lambda=c(lambda_t, NA),
                        year=1:Nyears
 )
 
-png( file="predict.png", width=8, height=5, res=800, units="in" )
+# png( file="predict.png", width=8, height=5, res=800, units="in" )
 par( mar=c(3,3,1,1), mgp=c(2,0.5,0), tck=-0.02 )
 
 plot(0, 0, ylim = c(min(plot.data$tmb_lower), max(plot.data$tmb_upper)), 
@@ -196,7 +193,7 @@ legend(x = 30, y = 40, legend = c("True", "Observed", "Estimated (TMB)", "Predic
        lty = c(1, 1, 1), lwd = c(2, 2, 2), col = c("darkorange","black", "blue", "red"),
        bty = "n", cex = 1)
 
-dev.off()
+# dev.off()
 #---------------------------------------------------------
 #Redo it with 
 #SigP = SigO = 1; B0 = 20;
@@ -204,44 +201,97 @@ dev.off()
 #i.e., see Auger-methe et al. 2016
 
 # Same thing, but in Stan---------------------------------------------------------
+
+#Setup
+require(tidyverse)
+theme_set(theme_classic())
 library(rstan)
 options(mc.cores = parallel::detectCores())
 rstan_options(auto_write = TRUE)
 
-#Set up data and initial values in chain
-dat <- list(N=Nyears,y_obs=y_obs)
-startVals <- function() {
+fastPairs <- function(l){ #Pairplot function
+  pairs(l,lower.panel=function(x,y){
+    par(usr=c(0,1,0,1))
+    text(0.5, 0.5, round(cor(x,y),2), cex = 1 * exp(abs(cor(x,y))))})
+}
+
+dat <- list(N=Nyears,y_obs=y_obs) #Data for model
+
+startVals <- function() { #Initial values for chains
   list(logB0 = 3, sigmaProc = 0.15, sigmaObs = 7, mu_lambda = 1, 
        lambda_t = rep(1,dat$N-1))
 }
 
 #true values: logB0 = exp(20) = 2.99, mu_lambda = 1.05, sigmaProc = 0.15, sigmaObs = 7
 
-stanMod1 <- stan(file='state_space_exponential.stan',data=dat,chains=4,init=startVals,
-                 iter=5000)
+stanMod1 <- stan(file='state_space_exponential.stan',data=dat,chains=4,init=startVals,iter=5000)
 
 #Parameters
-p <- c('logB0','sigmaProc','sigmaObs','mu_lambda')
+p <- data.frame(par=c('logB0','sigmaProc','sigmaObs','mu_lambda'),actual=c(log(B_init),SigP,SigO,mu_lambda))
 
-stan_trace(stanMod1,pars=p) #Looks OK, but lower than estimate
+stan_trace(stanMod1,pars=p$par) #Traces look OK
 
-mod1Res <- extract(stanMod1)
+#Get parameters (only first 4)
+mod1Res <- as.data.frame(stanMod1)[,p$par]
+
+#Correlation looks OK, but maybe something in sigma terms?
+fastPairs(mod1Res)
 
 #Doing a bad job at estimating sigmaObs/sigmaProc. Bad priors?
+mod1Res %>% pivot_longer(cols=logB0:sigmaProc,names_to='par') %>% 
+  ggplot(aes(x=value))+geom_histogram()+facet_wrap(~par,scales='free')+
+  geom_vline(data=p,aes(xintercept=actual),col='red')
 
-data.frame(draw=unlist(mod1Res))
+#Compare parameter values:
+stanEst <- as.data.frame(stanMod1)[1:4] %>% 
+  pivot_longer(cols=everything(),names_to='par') %>% group_by(par) %>% 
+  summarize(med=median(value),lwr=quantile(value,0.025),upr=quantile(value,0.975)) %>% 
+  ungroup() %>% mutate(par=factor(par),est='Stan')
 
-as.data.frame(t(sapply(mod1Res[1:4],function(x) quantile(x,c(0.5,0.025,0.975))))) %>% 
-  rownames_to_column(var='var') %>% 
-  mutate(actual=c(log(B_init),SigP,SigO,mu_lambda)) %>% 
-  rename(med=2,lwr=3,upr=4) %>% 
-  ggplot(aes(x=1))+facet_wrap(~var,scales='free_y')+
-  geom_pointrange(aes(y=med,ymax=upr,ymin=lwr),col='red')+
-  geom_point(aes(y=actual))
-  
+tmbEst <- data.frame(par=names(SD$value),med=SD$value,stdErr=SD$sd) %>% 
+  filter(!grepl('_t',par)) %>% mutate(par=factor(par,labels=levels(stanEst$par))) %>% 
+  mutate(upr=med+stdErr*1.96,lwr=med-stdErr*1.96,est='TMB') %>% select(-stdErr)
+
+actualEst <- data.frame(par=levels(stanEst$par),val=c(log(B_init),mu_lambda,SigO,SigP))
+
+#Looks like both routines do a poor job at estimating sigmaProc
+bind_rows(stanEst,tmbEst) %>% 
+  ggplot(aes(x=1,y=med))+
+  geom_pointrange(aes(ymax=upr,ymin=lwr,col=est),position=position_dodge(width=0.2))+
+  geom_point(data=actualEst,aes(x=1,y=val,col='Actual'),size=2)+ #Cheaty way of putting things on the legend
+  facet_wrap(~par,nrow=1,scales='free_y')+
+  labs(x=NULL,y='Estimate',col='Estimation\nMethod',title='Weaker priors')+
+  scale_colour_manual(values=c('black','red','blue'))+
+  theme(axis.text.x=element_blank(),axis.ticks.x = element_blank())
+
+#Compare predictions:
+
+#Get biomass estimates from Stan and TMB
+stan_bio <- as.data.frame(stanMod1)[grepl('biomass',names(stanMod1))] %>% 
+  pivot_longer(cols=everything()) %>% group_by(name) %>% 
+  summarize(med=median(value),lwr=quantile(value,0.025),upr=quantile(value,0.975)) %>% ungroup() %>% 
+  separate(name,into=c('bio','time','et'),sep='(\\[|\\])',convert=T) %>% select(-bio,-et) %>% 
+  arrange(time) %>% mutate(est='Stan') 
+
+#Compare to estimates from TMB
+tmb_bio <- data.frame(time=1:50, med = ParHat$biomass_t, stdErr=SD$sd[names(SD$value)=="biomass_t"]) %>% 
+  mutate(lwr = med - stdErr*1.96, upr = med + stdErr*1.96,est='TMB') %>% select(-stdErr)
+
+#Actual estimates
+actual_bio <- data.frame(time=1:50,actualBio=B,measBio=y_obs) %>% 
+  pivot_longer(cols=-time) %>% mutate(name=factor(name,labels=c('Actual','Measured')))
+
+bind_rows(stan_bio,tmb_bio) %>% 
+  ggplot(aes(x=time))+
+  geom_ribbon(aes(ymax=upr,ymin=lwr,fill=est),alpha=0.3,show.legend = F)+
+  geom_line(aes(y=med,col=est))+
+  geom_point(data=actual_bio,aes(x=time,y=value,shape=name))+ #Measured and actual biomass
+  labs(x='Time',y='Biomass',col='Estimation\nMethod',shape='Biomass')+
+  scale_fill_manual(values=c('red','blue'))+scale_colour_manual(values=c('red','blue'))+
+  scale_shape_manual(values=c(1,19))
 
 
 
 
 
-
+    

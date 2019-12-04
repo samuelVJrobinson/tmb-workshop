@@ -51,12 +51,16 @@ Type objective_function<Type>::operator() ()
   REPORT( sigmaP );
   REPORT( sigmaO );
   REPORT( lambda_t );
-  REPORT( biomass_t); 
+  REPORT( biomass_t);
+  REPORT( mu_lambda);
+  REPORT( logB0);
   
   ADREPORT( sigmaP );
   ADREPORT( sigmaO );
   ADREPORT( lambda_t );
   ADREPORT( biomass_t ); 
+  ADREPORT( mu_lambda);
+  ADREPORT( logB0);
   
   return jnll;
 }

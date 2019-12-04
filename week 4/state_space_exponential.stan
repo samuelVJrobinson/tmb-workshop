@@ -1,4 +1,3 @@
-// The input data is a vector 'y' of length 'N'.
 data {
   int<lower=0> N;
   vector[N] y_obs;
@@ -27,8 +26,8 @@ model {
   
   //Priors
   logB0 ~ normal(0,20);
-  sigmaProc ~ gamma(1,1);
-  sigmaObs ~ gamma(1,1);
+  sigmaProc ~ cauchy(0,20);
+  sigmaObs ~ cauchy(0,20);
   mu_lambda ~ normal(0,20);
 }
 
